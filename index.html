@@ -21,45 +21,217 @@
     const { useState, useRef, useEffect } = React;
 
     // ═══════════════════════════════════════════════════════════════════════
-    // COLORS - Same as Hafs app
+    // WARSH COLORS - Original scheme
     // ═══════════════════════════════════════════════════════════════════════
     const COLORS = {
-      GHUNNAH:   '#228B22',  // Green
-      QALQALAH:  '#4169E1',  // Blue
-      TAFKHEEM:  '#0000CD',  // Dark blue
+      // Warsh-specific rules
+      NAQL:       '#0891b2',  // Cyan - نقل
+      TAQLIL:     '#ea580c',  // Orange - تقليل
+      TASHIL:     '#9333ea',  // Purple - تسهيل
+      IBDAL:      '#ec4899',  // Pink - إبدال
+      TARQIQ_RA:  '#38bdf8',  // Light Blue - ترقيق الراء
+      MADD_BADAL: '#991b1b',  // Dark Red - مد البدل
+      MADD_6:     '#dc2626',  // Red - مد متصل/منفصل
+      
+      // Shared rules
+      GHUNNAH:    '#16a34a',  // Green - غنة
+      QALQALAH:   '#2563eb',  // Blue - قلقلة
+      TAFKHEEM:   '#1d4ed8',  // Dark Blue - تفخيم
     };
 
     // Letters
     const TAFKHEEM_LETTERS = 'خصضغطظ';
     const QALQALAH_LETTERS = 'قطبجد';
+    const MADD_LETTERS = 'اوي';
+    
+    // Taqlil patterns (specific words in Warsh)
+    const TAQLIL_WORDS = [
+      'الكافرين', 'الكفار', 'التوراة', 'موسى', 'عيسى', 
+      'يحيى', 'النصارى', 'أسارى', 'سكارى', 'كسالى',
+      'هدى', 'تقى', 'ضحى', 'سدى', 'قرى'
+    ];
 
     // ═══════════════════════════════════════════════════════════════════════
-    // SIMPLE COLORIZE - Same approach as Hafs app
+    // COLORIZE FUNCTION - Warsh rules
     // ═══════════════════════════════════════════════════════════════════════
     const colorizeText = (text) => {
-      let html = text;
+      const chars = [...text];
+      const positionRules = new Map();
       
-      // Step 1: Qalqalah - letter + sukoon
-      html = html.replace(/([قطبجد])ْ/g, 
-        `<span style="color: ${COLORS.QALQALAH};" title="قلقلة">$1ْ</span>`
-      );
+      // Helper to mark position
+      const mark = (pos, rule, arabic) => {
+        if (pos >= 0 && pos < chars.length && !positionRules.has(pos)) {
+          positionRules.set(pos, { rule, arabic });
+        }
+      };
       
-      // Step 2: Ghunnah - noon/meem with shaddah
-      html = html.replace(/([نم])ّ/g, 
-        `<span style="color: ${COLORS.GHUNNAH};" title="غنة">$1ّ</span>`
-      );
+      // 1. NAQL (نقل) - Hamzah wasl transferred after tanween
+      // Pattern: tanween + hamzat wasl (ٱ) 
+      for (let i = 0; i < chars.length - 1; i++) {
+        // Tanween marks: ً ٌ ٍ
+        if (/[ًٌٍ]/.test(chars[i]) && chars[i+1] === 'ٱ') {
+          mark(i, 'naql', 'نقل');
+          mark(i+1, 'naql', 'نقل');
+        }
+      }
       
-      // Step 3: Tafkheem - heavy letters NOT already in spans
-      const parts = html.split(/(<span[^>]*>.*?<\/span>)/g);
-      html = parts.map(part => {
-        if (part.startsWith('<span')) return part;
-        return part.replace(/([خصضغطظق])/g,
-          `<span style="color: ${COLORS.TAFKHEEM};" title="تفخيم">$1</span>`
-        );
-      }).join('');
+      // 2. TAQLIL (تقليل) - Alif imala patterns
+      // Look for specific words and mark the alif
+      const textStr = chars.join('');
+      for (const word of TAQLIL_WORDS) {
+        let idx = textStr.indexOf(word);
+        while (idx !== -1) {
+          // Find alif in this word
+          for (let j = idx; j < idx + word.length && j < chars.length; j++) {
+            if (chars[j] === 'ا' || chars[j] === 'ى') {
+              mark(j, 'taqlil', 'تقليل');
+            }
+          }
+          idx = textStr.indexOf(word, idx + 1);
+        }
+      }
       
-      return html;
+      // 3. TASHIL (تسهيل) - Two hamzahs meeting
+      // Pattern: أأ or ءأ or أء
+      for (let i = 0; i < chars.length - 1; i++) {
+        const curr = chars[i];
+        const next = chars[i+1];
+        if ((curr === 'أ' || curr === 'ء' || curr === 'إ' || curr === 'ؤ' || curr === 'ئ') &&
+            (next === 'أ' || next === 'ء' || next === 'إ' || next === 'ؤ' || next === 'ئ')) {
+          mark(i, 'tashil', 'تسهيل');
+          mark(i+1, 'tashil', 'تسهيل');
+        }
+      }
+      
+      // 4. IBDAL (إبدال) - Hamzah becomes madd letter
+      // Pattern: ء with sukoon followed by vowel → becomes madd
+      // Common: يُؤْمِنُونَ → يُومِنُونَ in Warsh
+      for (let i = 0; i < chars.length - 2; i++) {
+        if ((chars[i] === 'ؤ' || chars[i] === 'ئ') && chars[i+1] === 'ْ') {
+          mark(i, 'ibdal', 'إبدال');
+        }
+      }
+      
+      // 5. TARQIQ RA (ترقيق الراء) - Light Ra after kasra
+      // Pattern: kasra + ra
+      for (let i = 1; i < chars.length; i++) {
+        if (chars[i] === 'ر') {
+          // Check if preceded by kasra or letter with kasra
+          if (i > 0 && (chars[i-1] === 'ِ' || chars[i-1] === 'ٍ')) {
+            mark(i, 'tarqiq_ra', 'ترقيق الراء');
+          }
+          // Or if ra has kasra itself
+          if (i + 1 < chars.length && (chars[i+1] === 'ِ' || chars[i+1] === 'ٍ')) {
+            mark(i, 'tarqiq_ra', 'ترقيق الراء');
+          }
+        }
+      }
+      
+      // 6. MADD BADAL (مد البدل) - Hamzah followed by madd letter
+      // Pattern: hamzah + alif/waw/ya with madd
+      for (let i = 0; i < chars.length - 1; i++) {
+        if (chars[i] === 'ء' || chars[i] === 'أ' || chars[i] === 'إ') {
+          if (MADD_LETTERS.includes(chars[i+1])) {
+            mark(i, 'madd_badal', 'مد البدل');
+            mark(i+1, 'madd_badal', 'مد البدل');
+          }
+        }
+        // آ = أا (alif with madda)
+        if (chars[i] === 'آ') {
+          mark(i, 'madd_badal', 'مد البدل');
+        }
+      }
+      
+      // 7. MADD 6 COUNTS (مد متصل/منفصل) - Extended in Warsh
+      // Pattern: madd letter followed by hamzah
+      for (let i = 0; i < chars.length - 1; i++) {
+        if (MADD_LETTERS.includes(chars[i])) {
+          // Check next few chars for hamzah
+          for (let j = i + 1; j < Math.min(i + 3, chars.length); j++) {
+            if (chars[j] === 'ء' || chars[j] === 'أ' || chars[j] === 'إ' || chars[j] === 'ؤ' || chars[j] === 'ئ') {
+              if (!positionRules.has(i)) { // Don't override madd badal
+                mark(i, 'madd_6', 'مد ٦ حركات');
+              }
+              break;
+            }
+            // Skip diacritics
+            if (!/[ًٌٍَُِّْ]/.test(chars[j])) break;
+          }
+        }
+      }
+      
+      // 8. GHUNNAH (غنة) - Noon/meem with shaddah, or hidden noon
+      for (let i = 0; i < chars.length; i++) {
+        if ((chars[i] === 'ن' || chars[i] === 'م') && 
+            i + 1 < chars.length && chars[i+1] === 'ّ') {
+          mark(i, 'ghunnah', 'غنة');
+        }
+      }
+      
+      // 9. QALQALAH (قلقلة) - Echo on ق ط ب ج د with sukoon
+      for (let i = 0; i < chars.length; i++) {
+        if (QALQALAH_LETTERS.includes(chars[i])) {
+          // Check for sukoon or end of word
+          if (i + 1 < chars.length && chars[i+1] === 'ْ') {
+            mark(i, 'qalqalah', 'قلقلة');
+          }
+          // End of verse (before verse marker or space)
+          if (i + 1 >= chars.length || chars[i+1] === ' ' || /[۝۞]/.test(chars[i+1])) {
+            mark(i, 'qalqalah', 'قلقلة');
+          }
+        }
+      }
+      
+      // 10. TAFKHEEM (تفخيم) - Heavy letters (lowest priority)
+      for (let i = 0; i < chars.length; i++) {
+        if (TAFKHEEM_LETTERS.includes(chars[i])) {
+          mark(i, 'tafkheem', 'تفخيم');
+        }
+      }
+      
+      // Build colored HTML
+      const colorMap = {
+        naql: COLORS.NAQL,
+        taqlil: COLORS.TAQLIL,
+        tashil: COLORS.TASHIL,
+        ibdal: COLORS.IBDAL,
+        tarqiq_ra: COLORS.TARQIQ_RA,
+        madd_badal: COLORS.MADD_BADAL,
+        madd_6: COLORS.MADD_6,
+        ghunnah: COLORS.GHUNNAH,
+        qalqalah: COLORS.QALQALAH,
+        tafkheem: COLORS.TAFKHEEM,
+      };
+      
+      let result = '';
+      for (let i = 0; i < chars.length; i++) {
+        const ruleInfo = positionRules.get(i);
+        if (ruleInfo) {
+          const color = colorMap[ruleInfo.rule] || '#888';
+          result += `<span style="color: ${color};" title="${ruleInfo.arabic}">${chars[i]}</span>`;
+        } else {
+          result += chars[i];
+        }
+      }
+      
+      return result;
     };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // COLOR LEGEND
+    // ═══════════════════════════════════════════════════════════════════════
+    const COLOR_LEGEND = [
+      { color: COLORS.NAQL, arabic: 'نقل', name: 'Naql' },
+      { color: COLORS.TAQLIL, arabic: 'تقليل', name: 'Taqlil' },
+      { color: COLORS.TASHIL, arabic: 'تسهيل', name: 'Tashil' },
+      { color: COLORS.IBDAL, arabic: 'إبدال', name: 'Ibdal' },
+      { color: COLORS.TARQIQ_RA, arabic: 'ترقيق الراء', name: 'Tarqiq Ra' },
+      { color: COLORS.MADD_BADAL, arabic: 'مد البدل', name: 'Madd Badal' },
+      { color: COLORS.MADD_6, arabic: 'مد ٦', name: 'Madd 6' },
+      { color: COLORS.GHUNNAH, arabic: 'غنة', name: 'Ghunnah' },
+      { color: COLORS.QALQALAH, arabic: 'قلقلة', name: 'Qalqalah' },
+      { color: COLORS.TAFKHEEM, arabic: 'تفخيم', name: 'Tafkheem' },
+    ];
 
     // ═══════════════════════════════════════════════════════════════════════
     // RECITERS
@@ -225,6 +397,7 @@
       const [currentPage, setCurrentPage] = useState(0);
       const [isFullscreen, setIsFullscreen] = useState(false);
       const [navStep, setNavStep] = useState(5);
+      const [showLegend, setShowLegend] = useState(false);
       
       const audioRef = useRef(null);
       const userAudioRef = useRef(null);
@@ -417,6 +590,31 @@
               </div>
             )}
 
+            {/* Color Legend */}
+            <div className="bg-white/80 rounded-xl p-4 mb-4 shadow">
+              <button 
+                onClick={() => setShowLegend(!showLegend)}
+                className="w-full flex justify-between items-center text-amber-800 font-bold font-arabic"
+              >
+                <span>🎨 دليل الألوان (10 قواعد)</span>
+                <span>{showLegend ? '▼' : '◀'}</span>
+              </button>
+              
+              {showLegend && (
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  {COLOR_LEGEND.map((item, i) => (
+                    <div key={i} className="flex items-center gap-2 p-2 bg-amber-50 rounded">
+                      <div 
+                        className="w-4 h-4 rounded-full"
+                        style={{ backgroundColor: item.color }}
+                      />
+                      <span className="font-arabic text-sm">{item.arabic}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Selection */}
             <div className="bg-white/80 rounded-xl p-4 mb-4 shadow">
               <div className="text-amber-800 font-bold font-arabic mb-3">اختر الآيات</div>
@@ -576,11 +774,18 @@
                     })}
                 </div>
                 
-                {/* Color key */}
-                <div className="flex gap-3 mt-3 pt-3 border-t border-amber-100">
-                  <span className="text-sm font-arabic" style={{color: COLORS.QALQALAH}}>■ قلقلة</span>
-                  <span className="text-sm font-arabic" style={{color: COLORS.GHUNNAH}}>■ غنة</span>
-                  <span className="text-sm font-arabic" style={{color: COLORS.TAFKHEEM}}>■ تفخيم</span>
+                {/* Quick color key */}
+                <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-amber-100">
+                  <span className="text-xs font-arabic" style={{color: COLORS.NAQL}}>■ نقل</span>
+                  <span className="text-xs font-arabic" style={{color: COLORS.TAQLIL}}>■ تقليل</span>
+                  <span className="text-xs font-arabic" style={{color: COLORS.TASHIL}}>■ تسهيل</span>
+                  <span className="text-xs font-arabic" style={{color: COLORS.IBDAL}}>■ إبدال</span>
+                  <span className="text-xs font-arabic" style={{color: COLORS.TARQIQ_RA}}>■ ترقيق</span>
+                  <span className="text-xs font-arabic" style={{color: COLORS.MADD_BADAL}}>■ مد البدل</span>
+                  <span className="text-xs font-arabic" style={{color: COLORS.MADD_6}}>■ مد ٦</span>
+                  <span className="text-xs font-arabic" style={{color: COLORS.GHUNNAH}}>■ غنة</span>
+                  <span className="text-xs font-arabic" style={{color: COLORS.QALQALAH}}>■ قلقلة</span>
+                  <span className="text-xs font-arabic" style={{color: COLORS.TAFKHEEM}}>■ تفخيم</span>
                 </div>
               </div>
             )}
