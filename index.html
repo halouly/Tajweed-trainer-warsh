@@ -762,6 +762,10 @@
       const [showChecklist, setShowChecklist] = useState(false);
       const [fontSize, setFontSize] = useState(savedSettings.fontSize || 28);
       const [lineHeight, setLineHeight] = useState(savedSettings.lineHeight || 2.2);
+      const [verseStep, setVerseStep] = useState(savedSettings.verseStep || 5);
+      const [currentPage, setCurrentPage] = useState(0);
+      const [navStep, setNavStep] = useState(savedSettings.navStep || 5);
+      const [isFullscreen, setIsFullscreen] = useState(false);
       
       // Refs
       const audioRef = useRef(null);
@@ -777,9 +781,9 @@
       // Save settings
       useEffect(() => {
         saveToStorage(STORAGE_KEYS.SETTINGS, {
-          surahNum, ayahStart, ayahEnd, reciter, playbackSpeed, loopMode, fontSize, lineHeight
+          surahNum, ayahStart, ayahEnd, reciter, playbackSpeed, loopMode, fontSize, lineHeight, verseStep, navStep
         });
-      }, [surahNum, ayahStart, ayahEnd, reciter, playbackSpeed, loopMode, fontSize, lineHeight]);
+      }, [surahNum, ayahStart, ayahEnd, reciter, playbackSpeed, loopMode, fontSize, lineHeight, verseStep, navStep]);
 
       // Save recordings
       useEffect(() => {
@@ -835,6 +839,9 @@
           }
           
           setColoredVerses(colored);
+          
+          // Reset pagination
+          setCurrentPage(0);
           
           // Deduplicate rules
           const uniqueRules = allRules.reduce((acc, curr) => {
@@ -983,6 +990,53 @@
 
       const formatTime = (s) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
 
+      // Navigate to next/previous verses in the Quran
+      const navigateVerses = (direction) => {
+        const step = navStep * direction;
+        
+        let newSurah = surahNum;
+        let newAyahStart = ayahStart + step;
+        
+        // Handle overflow/underflow
+        if (newAyahStart > SURAH_DATA[newSurah]?.ayahs) {
+          while (newAyahStart > SURAH_DATA[newSurah]?.ayahs && newSurah < 114) {
+            newAyahStart -= SURAH_DATA[newSurah]?.ayahs;
+            newSurah++;
+          }
+          if (newSurah > 114) {
+            newSurah = 114;
+            newAyahStart = SURAH_DATA[114]?.ayahs;
+          }
+        } else if (newAyahStart < 1) {
+          while (newAyahStart < 1 && newSurah > 1) {
+            newSurah--;
+            newAyahStart += SURAH_DATA[newSurah]?.ayahs;
+          }
+          if (newSurah < 1) {
+            newSurah = 1;
+            newAyahStart = 1;
+          }
+        }
+        
+        // Calculate end position
+        let newAyahEnd = newAyahStart + navStep - 1;
+        if (newAyahEnd > SURAH_DATA[newSurah]?.ayahs) {
+          newAyahEnd = SURAH_DATA[newSurah]?.ayahs;
+        }
+        
+        // Update state
+        setSurahNum(newSurah);
+        setAyahStart(newAyahStart);
+        setAyahEnd(newAyahEnd);
+        
+        // Clear previous data
+        setVerses([]);
+        setColoredVerses([]);
+        setDetectedRules([]);
+        setCurrentPage(0);
+        setShowChecklist(false);
+      };
+
       // Generate checklist from detected rules
       const generateChecklist = () => {
         const byType = {};
@@ -1082,6 +1136,7 @@
                         setVerses([]);
                         setColoredVerses([]);
                         setDetectedRules([]);
+                        setCurrentPage(0);
                       }}
                       className="w-full bg-amber-50 border border-amber-300 rounded-lg p-3 text-amber-900 font-arabic text-lg"
                       dir="rtl"
@@ -1137,6 +1192,52 @@
                         className="px-3 py-2 rounded-lg text-sm bg-amber-100 text-amber-800 font-arabic hover:bg-amber-200"
                       >الإخلاص</button>
                     </div>
+                    
+                    {/* Navigation controls */}
+                    <div className="mt-3 pt-3 border-t border-amber-200">
+                      <div className="text-amber-700 text-xs font-arabic mb-2">التنقل بـ:</div>
+                      <div className="flex items-center gap-2 flex-wrap mb-3">
+                        {[1, 5, 10, 20].map(n => (
+                          <button
+                            key={n}
+                            onClick={() => setNavStep(n)}
+                            className={`px-4 py-2 rounded-lg text-sm font-bold ${
+                              navStep === n 
+                                ? 'bg-amber-600 text-white' 
+                                : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                            }`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                        <input
+                          type="number"
+                          value={navStep}
+                          onChange={(e) => setNavStep(Math.max(1, Math.min(50, +e.target.value)))}
+                          min={1}
+                          max={50}
+                          className="w-16 bg-amber-50 border border-amber-300 rounded-lg px-2 py-2 text-amber-900 text-sm text-center"
+                        />
+                      </div>
+                      
+                      {/* Prev/Next navigation buttons */}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => navigateVerses(-1)}
+                          disabled={surahNum === 1 && ayahStart === 1}
+                          className="flex-1 py-3 bg-slate-600 hover:bg-slate-500 disabled:bg-gray-300 disabled:text-gray-500 rounded-xl text-white font-bold font-arabic"
+                        >
+                          → السابق {navStep}
+                        </button>
+                        <button
+                          onClick={() => navigateVerses(1)}
+                          disabled={surahNum === 114 && ayahEnd === SURAH_DATA[114]?.ayahs}
+                          className="flex-1 py-3 bg-slate-600 hover:bg-slate-500 disabled:bg-gray-300 disabled:text-gray-500 rounded-xl text-white font-bold font-arabic"
+                        >
+                          التالي {navStep} ←
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -1151,36 +1252,94 @@
 
                 {/* Verse Display */}
                 {coloredVerses.length > 0 && (
-                  <div className="bg-white rounded-xl p-4 shadow-lg border-2 border-amber-200">
-                    {/* Font controls */}
-                    <div className="flex items-center justify-between gap-2 mb-3 pb-3 border-b border-amber-100">
-                      <span className="text-amber-700 text-sm font-arabic">حجم الخط:</span>
-                      <div className="flex items-center gap-1">
-                        <button 
-                          onClick={() => setFontSize(Math.max(18, fontSize - 2))}
-                          className="w-8 h-8 bg-amber-100 rounded text-lg font-bold text-amber-800"
-                        >−</button>
-                        <span className="w-10 text-center text-amber-700">{fontSize}</span>
-                        <button 
-                          onClick={() => setFontSize(Math.min(48, fontSize + 2))}
-                          className="w-8 h-8 bg-amber-100 rounded text-lg font-bold text-amber-800"
-                        >+</button>
+                  <div className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white p-4 overflow-auto safe-area-inset' : 'bg-white rounded-xl p-4 shadow-lg border-2 border-amber-200'}`}>
+                    {/* Controls Bar */}
+                    <div className="space-y-2 mb-3 pb-3 border-b border-amber-100">
+                      {/* Row 1: Fullscreen + Font + Line height */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <button
+                          onClick={() => setIsFullscreen(!isFullscreen)}
+                          className="px-3 py-2 bg-slate-600 hover:bg-slate-500 text-white text-sm rounded-lg font-arabic"
+                        >
+                          {isFullscreen ? '✕ إغلاق' : '⛶ ملء الشاشة'}
+                        </button>
+                        
+                        {/* Font size */}
+                        <div className="flex items-center gap-1 bg-amber-50 rounded-lg p-1">
+                          <span className="text-amber-600 text-xs px-1">حجم</span>
+                          <button onClick={() => setFontSize(Math.max(16, fontSize - 2))} className="w-8 h-8 bg-amber-100 hover:bg-amber-200 rounded text-lg font-bold text-amber-800">−</button>
+                          <span className="text-amber-700 text-sm w-8 text-center">{fontSize}</span>
+                          <button onClick={() => setFontSize(Math.min(56, fontSize + 2))} className="w-8 h-8 bg-amber-100 hover:bg-amber-200 rounded text-lg font-bold text-amber-800">+</button>
+                        </div>
+                        
+                        {/* Line height */}
+                        <div className="flex items-center gap-1 bg-amber-50 rounded-lg p-1">
+                          <span className="text-amber-600 text-xs px-1">تباعد</span>
+                          <button onClick={() => setLineHeight(Math.max(1.2, lineHeight - 0.2))} className="w-8 h-8 bg-amber-100 hover:bg-amber-200 rounded text-lg font-bold text-amber-800">−</button>
+                          <button onClick={() => setLineHeight(Math.min(4, lineHeight + 0.2))} className="w-8 h-8 bg-amber-100 hover:bg-amber-200 rounded text-lg font-bold text-amber-800">+</button>
+                        </div>
+                      </div>
+                      
+                      {/* Row 2: Verses per page */}
+                      <div className="flex items-center gap-1 overflow-x-auto hide-scrollbar">
+                        <span className="text-amber-600 text-xs whitespace-nowrap font-arabic">عرض:</span>
+                        {[1, 3, 5, 7, 10, 20, 'الكل'].map(n => (
+                          <button
+                            key={n}
+                            onClick={() => { setVerseStep(n === 'الكل' ? coloredVerses.length : n); setCurrentPage(0); }}
+                            className={`px-3 py-2 rounded-lg text-sm font-arabic whitespace-nowrap ${
+                              (n === 'الكل' && verseStep >= coloredVerses.length) || verseStep === n 
+                                ? 'bg-amber-600 text-white' 
+                                : 'bg-amber-100 hover:bg-amber-200 text-amber-800'
+                            }`}
+                          >
+                            {n}
+                          </button>
+                        ))}
                       </div>
                     </div>
                     
+                    {/* Pagination */}
+                    {coloredVerses.length > verseStep && (
+                      <div className="flex items-center justify-between gap-2 mb-3">
+                        <button
+                          onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                          disabled={currentPage === 0}
+                          className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-300 disabled:text-gray-500 text-white text-sm rounded-lg font-arabic"
+                        >
+                          → السابق
+                        </button>
+                        
+                        <span className="text-amber-700 text-sm font-arabic">
+                          {currentPage * verseStep + 1}-{Math.min((currentPage + 1) * verseStep, coloredVerses.length)} / {coloredVerses.length}
+                        </span>
+                        
+                        <button
+                          onClick={() => setCurrentPage(Math.min(Math.ceil(coloredVerses.length / verseStep) - 1, currentPage + 1))}
+                          disabled={(currentPage + 1) * verseStep >= coloredVerses.length}
+                          className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-gray-300 disabled:text-gray-500 text-white text-sm rounded-lg font-arabic"
+                        >
+                          التالي ←
+                        </button>
+                      </div>
+                    )}
+                    
                     {/* Verses */}
                     <div 
-                      className="font-warsh leading-loose"
+                      className={`font-warsh leading-loose ${isFullscreen ? '' : 'max-h-80 overflow-y-auto'}`}
                       style={{ fontSize: `${fontSize}px`, lineHeight: lineHeight }}
                     >
-                      {coloredVerses.map((v, i) => (
-                        <span key={i} className={currentAyah === (ayahStart + i) ? 'bg-amber-100 rounded px-1' : ''}>
-                          <span 
-                            dangerouslySetInnerHTML={{ __html: v.html }}
-                          />
-                          <span className="text-amber-400 text-sm mx-1">﴿{v.key.split(':')[1]}﴾</span>
-                        </span>
-                      ))}
+                      {coloredVerses
+                        .slice(currentPage * verseStep, (currentPage + 1) * verseStep)
+                        .map((v, i) => {
+                          const ayahNum = parseInt(v.key.split(':')[1]);
+                          return (
+                            <span key={i} className={currentAyah === ayahNum ? 'bg-amber-100 rounded px-1' : ''}>
+                              <span dangerouslySetInnerHTML={{ __html: v.html }} />
+                              <span className="text-amber-400 text-sm mx-1">﴿{v.key.split(':')[1]}﴾</span>
+                            </span>
+                          );
+                        })}
                     </div>
                     
                     {/* Quick color key */}
