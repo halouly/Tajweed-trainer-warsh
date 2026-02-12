@@ -651,44 +651,43 @@
         return null;
       }
       
-      // Apply coloring to text
+      // Apply coloring to text - character by character
       colorizeText(text) {
         const rules = this.analyzeVerse(text, '');
+        const chars = [...text];
         
-        if (rules.length === 0) {
-          // Still apply tafkheem to heavy letters
-          let result = text;
-          for (const letter of TAFKHEEM_LETTERS) {
-            result = result.replace(new RegExp(letter, 'g'), 
-              `<span style="color: ${WARSH_COLORS.TAFKHEEM}; font-weight: bold;" title="تفخيم">${letter}</span>`);
+        // Build a map of position -> rule (based on char array index)
+        const positionRules = new Map();
+        
+        // Process detected rules - only mark the position they specify
+        for (const rule of rules) {
+          const pos = rule.position;
+          if (pos >= 0 && pos < chars.length && !positionRules.has(pos)) {
+            positionRules.set(pos, { 
+              rule: rule.rule, 
+              arabic_rule: rule.arabic_rule
+            });
           }
-          return result;
         }
         
-        // Sort rules by position (descending to apply from end)
-        rules.sort((a, b) => b.position - a.position);
+        // Add tafkheem for heavy letters (lower priority)
+        for (let i = 0; i < chars.length; i++) {
+          if (TAFKHEEM_LETTERS.includes(chars[i]) && !positionRules.has(i)) {
+            positionRules.set(i, { rule: 'tafkheem', arabic_rule: 'تفخيم' });
+          }
+        }
         
-        let result = text;
-        const applied = new Set();
+        // Build output string character by character
+        let result = '';
         
-        for (const rule of rules) {
-          const key = `${rule.position}-${rule.rule}`;
-          if (applied.has(key)) continue;
-          applied.add(key);
+        for (let i = 0; i < chars.length; i++) {
+          const ruleInfo = positionRules.get(i);
           
-          const color = WARSH_TAJWEED_RULES[rule.rule]?.color || '#888';
-          const arabicName = rule.arabic_rule || rule.rule;
-          
-          // Find the text to highlight
-          const idx = result.indexOf(rule.text, Math.max(0, rule.position - 5));
-          if (idx !== -1) {
-            const before = result.substring(0, idx);
-            const match = rule.text;
-            const after = result.substring(idx + match.length);
-            
-            result = before + 
-              `<span style="color: ${color}; font-weight: bold;" title="${arabicName}">${match}</span>` + 
-              after;
+          if (ruleInfo) {
+            const color = WARSH_TAJWEED_RULES[ruleInfo.rule]?.color || '#888';
+            result += `<span style="color: ${color};" title="${ruleInfo.arabic_rule}">${chars[i]}</span>`;
+          } else {
+            result += chars[i];
           }
         }
         
