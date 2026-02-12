@@ -187,19 +187,11 @@
       }
     };
 
-    // Color legend for display
+    // Color legend for display (only rules we actually detect)
     const WARSH_COLOR_LEGEND = [
-      { color: WARSH_COLORS.NAQL, arabic: 'نقل', name: 'Naql', desc: 'نقل الحركة' },
-      { color: WARSH_COLORS.TAQLIL, arabic: 'تقليل', name: 'Taqlil', desc: 'إمالة الألف' },
-      { color: WARSH_COLORS.TASHIL, arabic: 'تسهيل', name: 'Tashil', desc: 'تسهيل الهمز' },
-      { color: WARSH_COLORS.IBDAL, arabic: 'إبدال', name: 'Ibdal', desc: 'إبدال الهمز' },
-      { color: WARSH_COLORS.TARQIQ_RA, arabic: 'ترقيق الراء', name: 'Tarqiq Ra', desc: 'راء مرققة' },
-      { color: WARSH_COLORS.MADD_BADAL, arabic: 'مد البدل', name: 'Madd Badal', desc: '2/4/6 حركات' },
-      { color: WARSH_COLORS.MADD_6, arabic: 'مد 6', name: 'Madd 6', desc: '6 حركات' },
-      { color: WARSH_COLORS.GHUNNAH, arabic: 'غنة', name: 'Ghunnah', desc: 'حركتان' },
-      { color: WARSH_COLORS.QALQALAH, arabic: 'قلقلة', name: 'Qalqalah', desc: 'ق ط ب ج د' },
+      { color: WARSH_COLORS.QALQALAH, arabic: 'قلقلة', name: 'Qalqalah', desc: 'ق ط ب ج د + سكون' },
+      { color: WARSH_COLORS.GHUNNAH, arabic: 'غنة', name: 'Ghunnah', desc: 'نّ مّ' },
       { color: WARSH_COLORS.TAFKHEEM, arabic: 'تفخيم', name: 'Tafkheem', desc: 'خ ص ض غ ط ق ظ' },
-      { color: WARSH_COLORS.SILENT, arabic: 'صامت', name: 'Silent', desc: 'لا يُلفظ' },
     ];
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -351,353 +343,71 @@
     ];
 
     // ═══════════════════════════════════════════════════════════════════════
-    // WARSH TAJWEED ENGINE - Custom Rule Detection
+    // WARSH TAJWEED - SIMPLE COLORING (like Hafs app approach)
     // ═══════════════════════════════════════════════════════════════════════
     
-    // Special Warsh Unicode markers from KFGQPC
-    const WARSH_MARKERS = {
-      SMALL_HIGH_ROUNDED: '\u06EC',  // ۬ - Rounded high stop
-      SMALL_LOW_SEEN: '\u06E3',      // ۣ - Small low seen  
-      SMALL_WAW: '\u06E5',           // ۥ - Small waw
-      SMALL_YEH: '\u06E6',           // ۦ - Small yeh
-      INVERTED_DAMMA: '\u0657',      // ٗ - Inverted damma
-      SUBSCRIPT_ALEF: '\u0656',      // ٖ - Subscript alef
-      OPEN_FATHATAN: '\u08F0',       // ࣰ - Open fathatan (Warsh tanween)
-      OPEN_DAMMATAN: '\u08F1',       // ࣱ - Open dammatan
-      OPEN_KASRATAN: '\u08F2',       // ࣲ - Open kasratan
-      SMALL_HIGH_DOTLESS_HEAD: '\u06EA', // ۪ - For hamza wasl
+    // Letter groups
+    const TAFKHEEM_LETTERS = 'خصضغطظ';
+    const QALQALAH_LETTERS = 'قطبجد';
+    const SUKOON = 'ْ';
+    
+    // Simple colorize function - regex based like Hafs app
+    const colorizeWarshText = (text) => {
+      let html = text;
+      
+      // Step 1: Qalqalah - letters followed by sukoon
+      html = html.replace(new RegExp(`([${QALQALAH_LETTERS}])${SUKOON}`, 'g'), 
+        `<span style="color: ${WARSH_COLORS.QALQALAH};" title="قلقلة">$1${SUKOON}</span>`
+      );
+      
+      // Step 2: Ghunnah - noon/meem with shaddah
+      html = html.replace(/([نم])ّ/g, 
+        `<span style="color: ${WARSH_COLORS.GHUNNAH};" title="غنة">$1ّ</span>`
+      );
+      
+      // Step 3: Tafkheem - heavy letters NOT already in spans
+      const parts = html.split(/(<span[^>]*>.*?<\/span>)/g);
+      html = parts.map(part => {
+        if (part.startsWith('<span')) return part;
+        return part.replace(new RegExp(`([${TAFKHEEM_LETTERS}ق])`, 'g'),
+          `<span style="color: ${WARSH_COLORS.TAFKHEEM};" title="تفخيم">$1</span>`
+        );
+      }).join('');
+      
+      return html;
     };
     
-    // Letters for rule detection
-    const TAFKHEEM_LETTERS = 'خصضغطقظ';
-    const QALQALAH_LETTERS = 'قطبجد';
-    const MADD_LETTERS = 'اوي';
-    const HAMZA = 'ءأإؤئ';
-    
-    // Taqlil words (partial list - words where Warsh applies taqlil)
-    const TAQLIL_PATTERNS = [
-      'الكافرين', 'كافرين', 'الكفار', 'موسى', 'عيسى', 'يحيى',
-      'الدنيا', 'العليا', 'القصوى', 'الأقصى', 'طوبى', 'سيماهم',
-      'مثواه', 'مثواكم', 'هداهم', 'هداي', 'هدانا', 'تقواها',
-      'دحاها', 'طحاها', 'سواها', 'تلاها', 'جلاها', 'بناها',
-      'أرساها', 'أغشاها', 'ضحاها', 'سجى', 'قلى', 'أعطى',
-      'استغنى', 'تولى', 'الأعلى', 'يخشى', 'ذكرى', 'بشرى',
-      'أخرى', 'الأولى', 'النجوى', 'التقوى', 'سلوى', 'الهوى'
-    ];
-    
-    // Ibdal patterns (saakin hamza at beginning)
-    const IBDAL_PATTERNS = [
-      { from: 'يُؤْ', to: 'يُو' },
-      { from: 'تُؤْ', to: 'تُو' },
-      { from: 'نُؤْ', to: 'نُو' },
-      { from: 'مُؤْ', to: 'مُو' },
-      { from: 'يَأْ', to: 'يَا' },
-      { from: 'تَأْ', to: 'تَا' },
-      { from: 'بِئْ', to: 'بِي' },
-      { from: 'الذِّئْ', to: 'الذِّي' },
-    ];
+    // Extract rules for checklist display
+    const extractWarshRules = (text, verseKey) => {
+      const rules = [];
+      let match;
+      
+      // Qalqalah
+      const qalqalahRegex = new RegExp(`[${QALQALAH_LETTERS}]${SUKOON}`, 'g');
+      while ((match = qalqalahRegex.exec(text)) !== null) {
+        rules.push({ rule: 'qalqalah', text: match[0], verse: verseKey, arabic_rule: 'قلقلة' });
+      }
+      
+      // Ghunnah
+      const ghunnahRegex = /[نم]ّ/g;
+      while ((match = ghunnahRegex.exec(text)) !== null) {
+        rules.push({ rule: 'ghunnah', text: match[0], verse: verseKey, arabic_rule: 'غنة' });
+      }
+      
+      // Tafkheem
+      const tafkheemRegex = new RegExp(`[${TAFKHEEM_LETTERS}ق]`, 'g');
+      while ((match = tafkheemRegex.exec(text)) !== null) {
+        rules.push({ rule: 'tafkheem', text: match[0], verse: verseKey, arabic_rule: 'تفخيم' });
+      }
+      
+      return rules;
+    };
 
-    class WarshTajweedEngine {
-      constructor() {
-        this.rules = [];
-      }
-      
-      // Main analysis function
-      analyzeVerse(text, verseKey) {
-        this.rules = [];
-        const chars = [...text];
-        
-        // Pass 1: Detect Warsh-specific Unicode markers
-        this.detectWarshMarkers(text, chars);
-        
-        // Pass 2: Detect Taqlil patterns
-        this.detectTaqlil(text);
-        
-        // Pass 3: Detect Ibdal (hamza replacement visible in Warsh text)
-        this.detectIbdal(text);
-        
-        // Pass 4: Detect Tarqiq Ra
-        this.detectTarqiqRa(text, chars);
-        
-        // Pass 5: Detect Madd patterns
-        this.detectMadd(text, chars);
-        
-        // Pass 6: Detect Ghunnah
-        this.detectGhunnah(text, chars);
-        
-        // Pass 7: Detect Qalqalah
-        this.detectQalqalah(text, chars);
-        
-        // Pass 8: Detect Tafkheem
-        this.detectTafkheem(text, chars);
-        
-        return this.rules;
-      }
-      
-      detectWarshMarkers(text, chars) {
-        // Detect special Warsh markers for naql, etc.
-        for (let i = 0; i < chars.length; i++) {
-          const char = chars[i];
-          
-          // Small high rounded stop - often indicates special Warsh reading
-          if (char === WARSH_MARKERS.SMALL_HIGH_ROUNDED) {
-            // Look for context - this might indicate naql or tashil
-            const context = text.substring(Math.max(0, i-3), Math.min(text.length, i+4));
-            this.rules.push({
-              rule: 'naql',
-              text: context,
-              position: i,
-              arabic_rule: 'نقل'
-            });
-          }
-          
-          // Open tanween markers (Warsh-specific)
-          if (char === WARSH_MARKERS.OPEN_FATHATAN || 
-              char === WARSH_MARKERS.OPEN_DAMMATAN || 
-              char === WARSH_MARKERS.OPEN_KASRATAN) {
-            // Check if followed by hamza wasl - potential naql
-            const nextChars = text.substring(i+1, i+5);
-            if (nextChars.match(/[اٱ]/)) {
-              this.rules.push({
-                rule: 'naql',
-                text: text.substring(Math.max(0, i-2), Math.min(text.length, i+5)),
-                position: i,
-                arabic_rule: 'نقل'
-              });
-            }
-          }
-        }
-      }
-      
-      detectTaqlil(text) {
-        for (const pattern of TAQLIL_PATTERNS) {
-          let idx = text.indexOf(pattern);
-          while (idx !== -1) {
-            this.rules.push({
-              rule: 'taqlil',
-              text: pattern,
-              position: idx,
-              arabic_rule: 'تقليل'
-            });
-            idx = text.indexOf(pattern, idx + 1);
-          }
-        }
-        
-        // Also detect alif before final ra with kasra
-        const raPatterns = text.matchAll(/([اى])(ر[ٍِ])/g);
-        for (const match of raPatterns) {
-          this.rules.push({
-            rule: 'taqlil',
-            text: match[0],
-            position: match.index,
-            arabic_rule: 'تقليل'
-          });
-        }
-      }
-      
-      detectIbdal(text) {
-        // In Warsh text, ibdal is often already written
-        // Look for يُومِنُونَ instead of يُؤْمِنُونَ
-        const ibdalPatterns = [
-          /يُوم[ِن]/g,  // يؤمن → يومن
-          /تُوم[ِن]/g,
-          /مُوم[ِن]/g,
-          /بِيس/g,      // بئس → بيس
-        ];
-        
-        for (const pattern of ibdalPatterns) {
-          const matches = text.matchAll(pattern);
-          for (const match of matches) {
-            this.rules.push({
-              rule: 'ibdal',
-              text: match[0],
-              position: match.index,
-              arabic_rule: 'إبدال'
-            });
-          }
-        }
-      }
-      
-      detectTarqiqRa(text, chars) {
-        // Tarqiq Ra: Ra after kasra, even if Ra has fatha/damma
-        for (let i = 0; i < chars.length; i++) {
-          if (chars[i] === 'ر') {
-            // Check previous letters for kasra
-            let j = i - 1;
-            while (j >= 0 && /[\u064B-\u0652\u0670]/.test(chars[j])) {
-              j--;
-            }
-            if (j >= 0) {
-              // Check if previous letter or its diacritics include kasra
-              const prevContext = text.substring(Math.max(0, j-1), i);
-              if (prevContext.includes('\u0650') || prevContext.includes('\u0656')) { // kasra or subscript alef
-                this.rules.push({
-                  rule: 'tarqiq_ra',
-                  text: text.substring(Math.max(0, i-2), Math.min(text.length, i+3)),
-                  position: i,
-                  arabic_rule: 'ترقيق الراء'
-                });
-              }
-            }
-          }
-        }
-      }
-      
-      detectMadd(text, chars) {
-        for (let i = 0; i < chars.length; i++) {
-          const char = chars[i];
-          
-          // Madd letters followed by hamza = Madd (6 counts in Warsh)
-          if (MADD_LETTERS.includes(char)) {
-            const nextNonDiacritic = this.getNextBaseLetter(chars, i);
-            if (nextNonDiacritic && HAMZA.includes(nextNonDiacritic)) {
-              this.rules.push({
-                rule: 'madd_6',
-                text: text.substring(i, Math.min(text.length, i+4)),
-                position: i,
-                arabic_rule: 'مد 6 حركات',
-                counts: 6
-              });
-            }
-          }
-          
-          // Madd Badal: Hamza followed by madd letter
-          if (HAMZA.includes(char)) {
-            const nextChar = this.getNextBaseLetter(chars, i);
-            if (nextChar && MADD_LETTERS.includes(nextChar)) {
-              this.rules.push({
-                rule: 'madd_badal',
-                text: text.substring(i, Math.min(text.length, i+4)),
-                position: i,
-                arabic_rule: 'مد البدل',
-                counts: '2/4/6'
-              });
-            }
-          }
-        }
-      }
-      
-      detectGhunnah(text, chars) {
-        // Noon/meem with shaddah, idgham with ghunnah, ikhfa, etc.
-        for (let i = 0; i < chars.length; i++) {
-          const char = chars[i];
-          
-          // Noon or meem with shaddah
-          if ((char === 'ن' || char === 'م') && text.substring(i, i+2).includes('\u0651')) {
-            this.rules.push({
-              rule: 'ghunnah',
-              text: text.substring(i, Math.min(text.length, i+3)),
-              position: i,
-              arabic_rule: 'غنة'
-            });
-          }
-          
-          // Tanween or noon sakinah before specific letters (idgham/ikhfa)
-          if (char === 'ن' || /[\u064B-\u064D\u08F0-\u08F2]/.test(char)) {
-            const nextBase = this.getNextBaseLetter(chars, i);
-            // Idgham with ghunnah letters: ي ن م و
-            // Ikhfa letters: ت ث ج د ذ ز س ش ص ض ط ظ ف ق ك
-            if (nextBase && 'ينموتثجدذزسشصضطظفقك'.includes(nextBase)) {
-              this.rules.push({
-                rule: 'ghunnah',
-                text: text.substring(i, Math.min(text.length, i+4)),
-                position: i,
-                arabic_rule: 'غنة'
-              });
-            }
-          }
-        }
-      }
-      
-      detectQalqalah(text, chars) {
-        for (let i = 0; i < chars.length; i++) {
-          if (QALQALAH_LETTERS.includes(chars[i])) {
-            // Check if followed by sukoon or at end of word
-            const nextChars = text.substring(i+1, i+3);
-            if (nextChars.includes('\u0652') || // sukoon
-                /\s/.test(chars[i+1]) || // space
-                i === chars.length - 1 || // end
-                /[۝۞]/.test(chars[i+1])) { // verse markers
-              this.rules.push({
-                rule: 'qalqalah',
-                text: chars[i],
-                position: i,
-                arabic_rule: 'قلقلة'
-              });
-            }
-          }
-        }
-      }
-      
-      detectTafkheem(text, chars) {
-        for (let i = 0; i < chars.length; i++) {
-          if (TAFKHEEM_LETTERS.includes(chars[i])) {
-            this.rules.push({
-              rule: 'tafkheem',
-              text: chars[i],
-              position: i,
-              arabic_rule: 'تفخيم'
-            });
-          }
-        }
-      }
-      
-      getNextBaseLetter(chars, index) {
-        for (let i = index + 1; i < chars.length; i++) {
-          if (!/[\u064B-\u0652\u0670\u06D6-\u06ED\u08F0-\u08F2]/.test(chars[i])) {
-            return chars[i];
-          }
-        }
-        return null;
-      }
-      
-      // Apply coloring to text - character by character
-      colorizeText(text) {
-        const rules = this.analyzeVerse(text, '');
-        const chars = [...text];
-        
-        // Build a map of position -> rule (based on char array index)
-        const positionRules = new Map();
-        
-        // Process detected rules - only mark the position they specify
-        for (const rule of rules) {
-          const pos = rule.position;
-          if (pos >= 0 && pos < chars.length && !positionRules.has(pos)) {
-            positionRules.set(pos, { 
-              rule: rule.rule, 
-              arabic_rule: rule.arabic_rule
-            });
-          }
-        }
-        
-        // Add tafkheem for heavy letters (lower priority)
-        for (let i = 0; i < chars.length; i++) {
-          if (TAFKHEEM_LETTERS.includes(chars[i]) && !positionRules.has(i)) {
-            positionRules.set(i, { rule: 'tafkheem', arabic_rule: 'تفخيم' });
-          }
-        }
-        
-        // Build output string character by character
-        let result = '';
-        
-        for (let i = 0; i < chars.length; i++) {
-          const ruleInfo = positionRules.get(i);
-          
-          if (ruleInfo) {
-            const color = WARSH_TAJWEED_RULES[ruleInfo.rule]?.color || '#888';
-            result += `<span style="color: ${color};" title="${ruleInfo.arabic_rule}">${chars[i]}</span>`;
-          } else {
-            result += chars[i];
-          }
-        }
-        
-        return result;
-      }
-    }
-
-    // Create singleton instance
-    const tajweedEngine = new WarshTajweedEngine();
-
+    // Wrapper object for compatibility
+    const tajweedEngine = {
+      colorizeText: colorizeWarshText,
+      analyzeVerse: extractWarshRules
+    };
     // ═══════════════════════════════════════════════════════════════════════
     // STORAGE
     // ═══════════════════════════════════════════════════════════════════════
@@ -1342,14 +1052,10 @@
                     </div>
                     
                     {/* Quick color key */}
-                    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-amber-100">
-                      <span className="text-xs font-arabic" style={{color: WARSH_COLORS.NAQL}}>■ نقل</span>
-                      <span className="text-xs font-arabic" style={{color: WARSH_COLORS.TAQLIL}}>■ تقليل</span>
-                      <span className="text-xs font-arabic" style={{color: WARSH_COLORS.IBDAL}}>■ إبدال</span>
-                      <span className="text-xs font-arabic" style={{color: WARSH_COLORS.MADD_6}}>■ مد</span>
-                      <span className="text-xs font-arabic" style={{color: WARSH_COLORS.GHUNNAH}}>■ غنة</span>
-                      <span className="text-xs font-arabic" style={{color: WARSH_COLORS.QALQALAH}}>■ قلقلة</span>
-                      <span className="text-xs font-arabic" style={{color: WARSH_COLORS.TAFKHEEM}}>■ تفخيم</span>
+                    <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-amber-100">
+                      <span className="text-sm font-arabic" style={{color: WARSH_COLORS.QALQALAH}}>■ قلقلة</span>
+                      <span className="text-sm font-arabic" style={{color: WARSH_COLORS.GHUNNAH}}>■ غنة</span>
+                      <span className="text-sm font-arabic" style={{color: WARSH_COLORS.TAFKHEEM}}>■ تفخيم</span>
                     </div>
                   </div>
                 )}
